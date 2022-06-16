@@ -1,19 +1,34 @@
 using LsqFit, Distributions
-function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; NumPerms::Int = 1000, NumAFC::Int = 2)
+""" 
+ThresholdEstimates, DetectionRates = ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int;
+NumPerms::Int = 1000, NumAFC::Int = 2)
 
+Takes the stimulus levels, the corresponding probability of detection for each stimulus, and the number of 
+trials/repeats and simulates the method of constant stimulation to resolve the detection threshold.
+"""
+function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; NumPerms::Int = 1000, NumAFC::Int = 2)
+    if NumAFC < 1
+        error("NumAFC < 1")
+    elseif NumAFC == 1
+        chance = 0;
+    else
+        chance = 1/NumAFC
+    end
+    # Initialize outputs
     t_est = Vector(undef, NumPerms); fill!(t_est, NaN)
-    pd = zeros(length(Stims))
+    pd_all = Matrix(undef, length(Stims),NumPerms); fill!(pd_all, NaN)
+    # Sigmoid function for fitting
     sigmoid(x::Vector, coeffs::Vector) = 1 ./ (1 .+ exp.(-coeffs[1].*(x.-coeffs[2])))
     
     for p = 1:NumPerms
         # Get the proportion of trials where the draw is below the p(detected) at each intensity
         pd = mean(
             (rand(length(Stims), NumTrials) .< repeat(pDetected, inner=(1,NumTrials))) .| # First draw greater than pd
-            (rand(length(Stims), NumTrials) .< 1/NumAFC) # Second draw is greater than chance
+            (rand(length(Stims), NumTrials) .< chance) # Second draw is greater than chance
             , dims = 2)
-        pd = (pd .- 1/NumAFC) ./ (1/NumAFC) # Scale for chance
+        pd = (pd .- chance) ./ (1/NumAFC) # Scale for chance
         pd[pd.<0] .= 0 # Remove values below 0
-
+        pd_all[:,p] = pd
         # Get fair estimates of the detection threshold and jnd
         dt_idx = findmin(abs.(pd.-0.5))[2]
         jnd_idx = [findmin(abs.(pd.-0.25))[2], findmin(abs.(pd.-0.75))[2]]
@@ -29,11 +44,8 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; Nu
             continue
         end
     end
-    if NumPerms == 1
-        return pd
-    else
-        return t_est
-    end
+
+    return t_est, pd_all
 end
 
 function GetConstantTargets(ValidStims::Vector{Int}, pDetected::Vector{Float64};  NumStimLevels::Int = 8,
@@ -52,5 +64,6 @@ function GetConstantTargets(ValidStims::Vector{Int}, pDetected::Vector{Float64};
     # Take subset
     TargetStims = ValidStims[stim_idx]
     TargetpDetected = pDetected[stim_idx]
+    
     return TargetStims, TargetpDetected
 end
