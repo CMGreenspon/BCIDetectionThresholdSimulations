@@ -58,7 +58,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     t_error_uconsts = nanmean((t_est .- detection_threshold).^2, dims = 2);
 
     ntrials_constants_plot2 = lineplot(1:max_trials, vec(t_mean_uconsts), title="Prediction Variance",
-    color=(169, 169, 169), name = "Mean", xlabel = "#Trials", ylabel = "Pred Amplitude",
+    color=(169, 169, 169), name = "Mean", xlabel = "#Trials/Intensity", ylabel = "Pred Amplitude",
         width = 80, height = 20, blend = false, ylim=(40, 60), xlim=(5,max_trials))
     lineplot!(ntrials_constants_plot2, 1:max_trials, vec(t_mean_uconsts) .+ vec(t_std_uconsts),
         color=:blue, name = "STD")
@@ -67,7 +67,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     display(ntrials_constants_plot2)
 
     ntrials_constants_plot3 = lineplot(1:max_trials, vec(t_error_uconsts), title="Prediction Error",
-        color=:blue, xlabel = "#Trials", ylabel = "MSE", xscale=:log10,
+        color=:blue, xlabel = "#Trials/Intensity", ylabel = "MSE", xscale=:log10,
         width = 80, height = 20, ylim = (0,100), xlim = (5, max_trials))
     for t = [5, 10, 50]
         lineplot!(ntrials_constants_plot3, [t, t], [0, 100], color=(169, 169, 169))
@@ -76,6 +76,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     display(ntrials_constants_plot3)
 
 ## Transformed Staircase
+    t = time()
     # Run the simulation and show an example staircase
     amplitude_history, detection_history, reversion_history, estimated_thresholds, stop_point =
         TransformedStaircaseSimulation( valid_stims,  pDetected)
@@ -86,9 +87,9 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     max_reversions = 100
     t_est = zeros(max_reversions, num_perms); fill!(t_est, NaN)
     t_stop = zeros(max_reversions, num_perms); fill!(t_est, NaN)
-    for mr = 1:max_reversions
+    Threads.@threads for mr = 1:max_reversions
         _, _, _, t_est[mr,:], t_stop[mr,:]=
-            TransformedStaircaseSimulation(valid_stims,  pDetected, MaxReversions = mr)
+            TransformedStaircaseSimulation(valid_stims,  pDetected, MaxReversions = mr, NumPerms = num_perms)
     end
 
     t_mean_staircase = nanmean(t_est, dims = 2)
@@ -112,6 +113,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
         annotate!(nreversions_staircase_plot2, t, 100, string(t), color = (169, 169, 169))
     end
     display(nreversions_staircase_plot2)
+    dt = time() - t
 
 ## Comparing constants & staircase
     # Because number of reversions != # trials we need to convert the indices
@@ -133,7 +135,19 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
         t_error_staircase_sorted[t] = mean((t_est[t_idx].- detection_threshold).^2)
     end
 
-    error_comparison_plot = lineplot
+    y_ul = 1000
+    error_comparison_plot = lineplot([5,5], [1,y_ul], color=(169, 169, 169), title="Prediction Error",
+        xlabel = "#Trials", ylabel = "MSE", xscale=:log10, yscale=:log10, width = 80, height = 20, ylim = (10,y_ul),
+        xlim = (5, max_trials*2))
+    annotate!(error_comparison_plot, 5, y_ul, string(5), color = (169, 169, 169))
+    for t = [10, 50]
+        lineplot!(error_comparison_plot, [t, t], [1, y_ul], color=(169, 169, 169))
+        annotate!(error_comparison_plot, t, y_ul, string(t), color = (169, 169, 169))
+    end
+    lineplot!(error_comparison_plot, 1:max_trials, t_error_staircase_sorted, color=:green, name = "Staircase")
+    lineplot!(error_comparison_plot, collect(1:max_trials).*length(test_stims), vec(t_error_uconsts),
+        color=:blue, name = "Unconstrained Constants")
+    display(error_comparison_plot)
  
 ## End
 run_time = round(time() - start_time, digits=2)
