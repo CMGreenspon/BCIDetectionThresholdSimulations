@@ -1,12 +1,12 @@
 using LsqFit, Distributions
 """ 
-ThresholdEstimates, DetectionRates = ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int;
+ThresholdEstimates, DetectionRates = ConstantSimulation(Stims::Vector, pDetected::Vector, NumReps::Int;
 NumPerms::Int = 1000, NumAFC::Int = 2)
 
 Takes the stimulus levels, the corresponding probability of detection for each stimulus, and the number of 
 trials/repeats and simulates the method of constant stimulation to resolve the detection threshold.
 """
-function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; NumPerms::Int = 1000, NumAFC::Int = 2,
+function ConstantSimulation(Stims::Vector, pDetected::Vector, NumReps::Int; NumPerms::Int = 1000, NumAFC::Int = 2,
      BoundSig::Bool = true)
     if NumAFC < 1
         error("NumAFC < 1")
@@ -16,7 +16,7 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; Nu
         chance = 1/NumAFC
     end
     # Create once for comparison
-    pD_Repeated = repeat(pDetected, inner=(1,NumTrials))
+    pD_Repeated = repeat(pDetected, inner=(1,NumReps))
     
     # Initialize outputs
     t_est = Vector(undef, NumPerms); fill!(t_est, NaN)
@@ -27,8 +27,8 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; Nu
     for p = 1:NumPerms
         # Get the proportion of trials where the draw is below the p(detected) at each intensity
         pd = mean(
-            (rand(length(Stims), NumTrials) .< pD_Repeated) .| # First draw greater than pd
-            (rand(length(Stims), NumTrials) .< chance) # Second draw is greater than chance
+            (rand(length(Stims), NumReps) .< pD_Repeated) .| # First draw greater than pd
+            (rand(length(Stims), NumReps) .< chance) # Second draw is greater than chance
             , dims = 2)
         pd = (pd .- chance) ./ (1/NumAFC) # Scale for chance
         pd[pd.<0] .= 0 # Remove values below 0
