@@ -154,7 +154,40 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     display(error_comparison_plot)
 
 ## Find the optimal parameters for method of constants
+    # Iterate over both number of stimulus levels and the range of stimulation
+    num_repeats = 10
+    num_perms = Int(1e4)
+    num_levels = 3:15 # How many stimulus levels to use (centered around DT)
+    widths = range(0.2,1,25) # What proportion of the psychometric curve should we sample 
+    t_mean_optim = zeros(length(num_levels), length(widths)); fill!(t_mean_optim, NaN)
+    t_std_optim = zeros(length(num_levels), length(widths)); fill!(t_std_optim, NaN)
 
+    t = time()
+    # Here we will get new stimulus levels for each number of intensities and width of the curve
+    for (lidx,l) in enumerate(num_levels)
+        Threads.@threads for (widx,w) in collect(enumerate(widths)) # 
+            test_stims, test_stims_pDetected = GetConstantTargets(valid_stims, pDetected,
+            Mode = "Constrained", NumStimLevels = l, PsychRange = [0.5-w/2, 0.5+w/2])
+            t_pred, _ = ConstantSimulation(test_stims, test_stims_pDetected, num_repeats, NumPerms = num_perms, BoundSig = true)
+            t_pred = convert(Vector{Float64}, t_pred)
+            t_mean_optim[lidx,widx] = nanmean(t_pred)
+            t_std_optim[lidx,widx] = nanstd(t_pred)
+        end
+    end
+    println("Elapsed time: $(round(time()-t; digits=2))")
+    optim_heatmap = heatmap(t_std_optim, xoffset=widths[1], xfact=getproperty(getproperty(widths,:step), :hi),
+     yoffset=num_levels[1], ylabel="#Levels", xlabel="Width")
+    display(optim_heatmap)
+
+    # The heatmap shows that at 0.6 width (~0.2 -> 0.8) then improvements taper
+    # Though performance improves with # levels we can't indefinitely add that as it will make
+    # trials take longer so lets see where it asymptotes
+    (_,idx) = findmin(abs.(collect(widths) .- 0.6))
+    num_levels_plot = lineplot(num_levels, t_std_optim[:,idx], xlabel="# Levels", ylabel="STD(Error)")
+    lineplot!(num_levels_plot, [8,8], [2, 5], color=(169, 169, 169))
+    display(num_levels_plot)
+
+    
  
 ## End
 run_time = round(time() - start_time, digits=2)

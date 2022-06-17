@@ -108,6 +108,7 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
             if reversion_history[t,p] == true
                 num_reversions += 1
             end
+
             # Stopping criteria
             if num_reversions >= MaxReversions
                 rev_idx = findall(isnan.(reversion_history[:,p]) .== 0)[1+SkipFirstNReversions:MaxReversions]
@@ -133,7 +134,7 @@ function GetTransformedStaircaseTarget(NumAFC::Int, Criterion::Vector{Int})
             error("Criterion[1] must be greater than Criterion[2]")
         end
     else
-        Target = Criterion[1]/Criterion[2]
+        Target = Criterion[1]/sum(Criterion)
     end
     
     return Target
