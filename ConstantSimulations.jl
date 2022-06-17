@@ -30,7 +30,7 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumReps::Int; NumP
             (rand(length(Stims), NumReps) .< pD_Repeated) .| # First draw greater than pd
             (rand(length(Stims), NumReps) .< chance) # Second draw is greater than chance
             , dims = 2)
-        pd = (pd .- chance) ./ (1/NumAFC) # Scale for chance
+        pd = (pd .- chance) ./ (1-chance) # Scale for chance
         pd[pd.<0] .= 0 # Remove values below 0
         pd_all[:,p] = pd
         # Get fair estimates of the detection threshold and jnd

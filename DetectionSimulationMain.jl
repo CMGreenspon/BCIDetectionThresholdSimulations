@@ -187,6 +187,8 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     lineplot!(num_levels_plot, [8,8], [2, 5], color=(169, 169, 169))
     display(num_levels_plot)
 
+    # This appears to asymptote around 8 (for this JND)
+
     
  
 ## End

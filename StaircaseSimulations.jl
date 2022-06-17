@@ -129,7 +129,7 @@ function GetTransformedStaircaseTarget(NumAFC::Int, Criterion::Vector{Int})
         chance = 1/NumAFC
         if Criterion[1] >= Criterion[2] && Criterion[2] == 1 
             NR = 0.5^(1/(Criterion[1]/Criterion[2])) # N-th root
-            Target = (NR - chance) / chance
+            Target = (NR - chance) / (1-chance)
         else
             error("Criterion[1] must be greater than Criterion[2]")
         end
