@@ -30,7 +30,6 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
         color = :red)
     display(pDetected_plot)
     
-
 ## Method of constants
     test_stims, test_stims_pDetected = GetConstantTargets(valid_stims, pDetected, Mode = "Unconstrained")
 
@@ -46,41 +45,46 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     display(ntrials_constants_plot)
 
 ## Show effect of number of trials on threshold estimate error
-    max_trials = Int(1e2)
+    max_repeats = Int(1e2)
     num_perms = Int(1e3)
-    t_est = zeros(max_trials, num_perms); fill!(t_est, NaN)
-    Threads.@threads for t = 1:max_trials
-        t_est[t,:], _ = ConstantSimulation(test_stims, test_stims_pDetected, t, NumPerms = num_perms)
+    t_est = zeros(max_repeats, num_perms); fill!(t_est, NaN)
+
+    Threads.@threads for t = 1:max_repeats
+        t_est[t,:], _ = ConstantSimulation(test_stims, test_stims_pDetected, t, NumPerms = num_perms, BoundSig = false)
     end
 
     t_mean_uconsts = nanmean(t_est, dims = 2)
     t_std_uconsts = nanstd(t_est, dims = 2)
     t_error_uconsts = nanmean((t_est .- detection_threshold).^2, dims = 2);
 
-    ntrials_constants_plot2 = lineplot(1:max_trials, vec(t_mean_uconsts), title="Prediction Variance",
+    ntrials_constants_plot2 = lineplot(1:max_repeats, vec(t_mean_uconsts), title="Prediction Variance",
     color=(169, 169, 169), name = "Mean", xlabel = "#Trials/Intensity", ylabel = "Pred Amplitude",
-        width = 80, height = 20, blend = false, ylim=(40, 60), xlim=(5,max_trials))
-    lineplot!(ntrials_constants_plot2, 1:max_trials, vec(t_mean_uconsts) .+ vec(t_std_uconsts),
+        width = 80, height = 20, blend = false, ylim=(40, 60), xlim=(5,max_repeats))
+    lineplot!(ntrials_constants_plot2, 1:max_repeats, vec(t_mean_uconsts) .+ vec(t_std_uconsts),
         color=:blue, name = "STD")
-    lineplot!(ntrials_constants_plot2, 1:max_trials, vec(t_mean_uconsts) .- vec(t_std_uconsts),
+    lineplot!(ntrials_constants_plot2, 1:max_repeats, vec(t_mean_uconsts) .- vec(t_std_uconsts),
         color=:blue)
     display(ntrials_constants_plot2)
 
-    ntrials_constants_plot3 = lineplot(1:max_trials, vec(t_error_uconsts), title="Prediction Error",
+    ntrials_constants_plot3 = lineplot(1:max_repeats, vec(t_error_uconsts), title="Prediction Error",
         color=:blue, xlabel = "#Trials/Intensity", ylabel = "MSE", xscale=:log10,
-        width = 80, height = 20, ylim = (0,100), xlim = (5, max_trials))
+        width = 80, height = 20, ylim = (0,100), xlim = (5, max_repeats))
     for t = [5, 10, 50]
         lineplot!(ntrials_constants_plot3, [t, t], [0, 100], color=(169, 169, 169))
         annotate!(ntrials_constants_plot3, t, 100, string(t), color = (169, 169, 169))
     end
     display(ntrials_constants_plot3)
+    
 
 ## Transformed Staircase
     t = time()
     # Run the simulation and show an example staircase
     amplitude_history, detection_history, reversion_history, estimated_thresholds, stop_point =
         TransformedStaircaseSimulation( valid_stims,  pDetected)
-    transformed_staircase_plot = lineplot(1:size(amplitude_history,1), vec(amplitude_history[:,1]), ylim = (0, 100))
+    transformed_staircase_plot = lineplot([1,50], [detection_threshold, detection_threshold], color=(169, 169, 169)
+    , ylim = (0, 100), width = 80, height = 20, xlabel="Trial #", ylabel="Stimulus Amplitude (μA)")
+    lineplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
+    scatterplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
     display(transformed_staircase_plot)
     
     # Evaluate what the staircase would have predicted for different criteria
@@ -120,14 +124,14 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     # Convert to vec for Histogram function
     t_stop_vec = vec(t_stop) 
     t_est_vec = vec(t_est)
-    h = fit(Histogram, t_stop_vec, 1:max_trials) 
+    h = fit(Histogram, t_stop_vec, 1:max_repeats) 
     # This gives up the bin index (== t_stop) that we can use on t_est
     indmap = StatsBase.binindex.(Ref(h), t_stop_vec)
-    #t_est_sorted = fill(Float64[], max_trials, 1)
-    t_mean_staircase_sorted = zeros(max_trials)
-    t_std_staircase_sorted = zeros(max_trials)
-    t_error_staircase_sorted = zeros(max_trials)
-    for t = 1:max_trials
+    #t_est_sorted = fill(Float64[], max_repeats, 1)
+    t_mean_staircase_sorted = zeros(max_repeats)
+    t_std_staircase_sorted = zeros(max_repeats)
+    t_error_staircase_sorted = zeros(max_repeats)
+    for t = 1:max_repeats
         t_idx = findall(indmap .== t)
         #t_est_sorted[t] = t_est[t_idx]
         t_mean_staircase_sorted[t] = mean(t_est[t_idx])
@@ -138,16 +142,19 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     y_ul = 1000
     error_comparison_plot = lineplot([5,5], [1,y_ul], color=(169, 169, 169), title="Prediction Error",
         xlabel = "#Trials", ylabel = "MSE", xscale=:log10, yscale=:log10, width = 80, height = 20, ylim = (10,y_ul),
-        xlim = (5, max_trials*2))
+        xlim = (5, max_repeats*2))
     annotate!(error_comparison_plot, 5, y_ul, string(5), color = (169, 169, 169))
     for t = [10, 50]
         lineplot!(error_comparison_plot, [t, t], [1, y_ul], color=(169, 169, 169))
         annotate!(error_comparison_plot, t, y_ul, string(t), color = (169, 169, 169))
     end
-    lineplot!(error_comparison_plot, 1:max_trials, t_error_staircase_sorted, color=:green, name = "Staircase")
-    lineplot!(error_comparison_plot, collect(1:max_trials).*length(test_stims), vec(t_error_uconsts),
+    lineplot!(error_comparison_plot, 1:max_repeats, t_error_staircase_sorted, color=:green, name = "Staircase")
+    lineplot!(error_comparison_plot, collect(1:max_repeats).*length(test_stims), vec(t_error_uconsts),
         color=:blue, name = "Unconstrained Constants")
     display(error_comparison_plot)
+
+## Find the optimal parameters for method of constants
+
  
 ## End
 run_time = round(time() - start_time, digits=2)

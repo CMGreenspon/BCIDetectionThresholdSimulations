@@ -17,10 +17,6 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
     estimated_thresholds = zeros(NumPerms)
     num_trials = zeros(NumPerms)
 
-    # Draw stimulus & chance ahead of time
-    draws = rand(MaxTrials,NumPerms)
-    AFC_draws = rand(MaxTrials,NumPerms)
-
     for p = 1:NumPerms
         # Initialize variables for trials
         step_size = InitStepSize
@@ -52,7 +48,7 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
             pd_at_stim = pDetected[stim_idx[1]] # Will error if the StimAmp is not a member of ValidStims
             
             # Determine if detected
-            if draws[t,p] < pd_at_stim || (NumAFC > 1 && AFC_draws[t,p] < afc_chance)
+            if rand() < pd_at_stim || (NumAFC > 1 && rand() < afc_chance)
                 # Deterimine if the 'correct' interval was selected. Equal to p(detected) + 1/NumAFC
                 detection_history[t,p] = 1
                 consecutive_answers[1] += 1

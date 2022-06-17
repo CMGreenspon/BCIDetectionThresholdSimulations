@@ -6,7 +6,8 @@ NumPerms::Int = 1000, NumAFC::Int = 2)
 Takes the stimulus levels, the corresponding probability of detection for each stimulus, and the number of 
 trials/repeats and simulates the method of constant stimulation to resolve the detection threshold.
 """
-function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; NumPerms::Int = 1000, NumAFC::Int = 2)
+function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; NumPerms::Int = 1000, NumAFC::Int = 2,
+     BoundSig::Bool = true)
     if NumAFC < 1
         error("NumAFC < 1")
     elseif NumAFC == 1
@@ -14,6 +15,9 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; Nu
     else
         chance = 1/NumAFC
     end
+    # Create once for comparison
+    pD_Repeated = repeat(pDetected, inner=(1,NumTrials))
+    
     # Initialize outputs
     t_est = Vector(undef, NumPerms); fill!(t_est, NaN)
     pd_all = Matrix(undef, length(Stims),NumPerms); fill!(pd_all, NaN)
@@ -23,7 +27,7 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; Nu
     for p = 1:NumPerms
         # Get the proportion of trials where the draw is below the p(detected) at each intensity
         pd = mean(
-            (rand(length(Stims), NumTrials) .< repeat(pDetected, inner=(1,NumTrials))) .| # First draw greater than pd
+            (rand(length(Stims), NumTrials) .< pD_Repeated) .| # First draw greater than pd
             (rand(length(Stims), NumTrials) .< chance) # Second draw is greater than chance
             , dims = 2)
         pd = (pd .- chance) ./ (1/NumAFC) # Scale for chance
@@ -36,7 +40,11 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumTrials::Int; Nu
         k_est = sigma2k(jnd2sigma(jnd_est))
         # Fit a sigmoid to the values
         try
-            sig_fit = curve_fit(sigmoid, [0;Stims;100], vec([0;pd;1]), [k_est, Stims[dt_idx]])
+            if BoundSig
+                sig_fit = curve_fit(sigmoid, [0;Stims;100], vec([0;pd;1]), [k_est, Stims[dt_idx]])
+            else
+                sig_fit = curve_fit(sigmoid, Stims, vec(pd), [k_est, Stims[dt_idx]])
+            end
             if sig_fit.param[2] > 0 && sig_fit.param[2] < 100
                 t_est[p] = sig_fit.param[2]
             end
