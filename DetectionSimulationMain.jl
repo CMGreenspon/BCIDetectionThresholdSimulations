@@ -156,7 +156,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
 ## Find the optimal parameters for method of constants
     # Iterate over both number of stimulus levels and the range of stimulation
     num_repeats = 10
-    num_perms = Int(1e4)
+    num_perms = Int(1e3)
     num_levels = 3:15 # How many stimulus levels to use (centered around DT)
     widths = range(0.2,1,25) # What proportion of the psychometric curve should we sample 
     t_mean_optim = zeros(length(num_levels), length(widths)); fill!(t_mean_optim, NaN)
@@ -192,5 +192,4 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     
  
 ## End
-run_time = round(time() - start_time, digits=2)
-println("Total run time = $(run_time) s")
+println("Total run time = $(round(time() - start_time, digits=2)) s")
