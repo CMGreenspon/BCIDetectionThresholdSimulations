@@ -55,7 +55,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
 
     t_mean_uconsts = nanmean(t_est, dims = 2)
     t_std_uconsts = nanstd(t_est, dims = 2)
-    t_error_uconsts = nanmean((t_est .- detection_threshold).^2, dims = 2);
+    t_error_uconsts = nanmean((t_est .- detection_threshold).^2, dims = 2)
 
     ntrials_constants_plot2 = lineplot(1:max_repeats, vec(t_mean_uconsts), title="Prediction Variance",
     color=(169, 169, 169), name = "Mean", xlabel = "#Trials/Intensity", ylabel = "Pred Amplitude",
@@ -79,9 +79,11 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
 ## Transformed Staircase
     t = time()
     # Run the simulation and show an example staircase
+    target_p = GetTransformedStaircaseTarget(2, [3,1])
+    target_amplitude = quantile(Normal(detection_threshold, sigma), target_p)
     amplitude_history, detection_history, reversion_history, estimated_thresholds, stop_point =
         TransformedStaircaseSimulation( valid_stims,  pDetected)
-    transformed_staircase_plot = lineplot([1,50], [detection_threshold, detection_threshold], color=(169, 169, 169)
+    transformed_staircase_plot = lineplot([1,50], [target_amplitude, target_amplitude], color=(169, 169, 169)
     , ylim = (0, 100), width = 80, height = 20, xlabel="Trial #", ylabel="Stimulus Amplitude (μA)")
     lineplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
     scatterplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
@@ -98,7 +100,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
 
     t_mean_staircase = nanmean(t_est, dims = 2)
     t_std_staircase = nanstd(t_est, dims = 2)
-    t_error_staircase = nanmean((t_est .- detection_threshold).^2, dims = 2)
+    t_error_staircase = nanmean((t_est .- target_amplitude).^2, dims = 2)
 
     nreversions_staircase_plot = lineplot(1:max_reversions, vec(t_mean_staircase), title="Prediction Variance",
     color=(169, 169, 169), name = "Mean", xlabel = "#Reversions", ylabel = "Pred Amplitude",
