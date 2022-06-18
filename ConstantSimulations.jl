@@ -21,8 +21,6 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumReps::Int; NumP
     # Initialize outputs
     t_est = Vector(undef, NumPerms); fill!(t_est, NaN)
     pd_all = Matrix(undef, length(Stims),NumPerms); fill!(pd_all, NaN)
-    # Sigmoid function for fitting
-    sigmoid(x::Vector, coeffs::Vector) = 1 ./ (1 .+ exp.(-coeffs[1].*(x.-coeffs[2])))
     
     for p = 1:NumPerms
         # Get the proportion of trials where the draw is below the p(detected) at each intensity
