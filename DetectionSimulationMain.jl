@@ -1,6 +1,6 @@
 start_time = time()
 using DataFrames, UnicodePlots, StatsBase, Distributions, Statistics, LsqFit, Distributed,
-      NaNStatistics, Base.Threads, Revise
+      NaNStatistics, Base.Threads, Revise, Infiltrator
 include.(("ConstantSimulations.jl", "StaircaseSimulations.jl"))
 
 println("Imports complete.")
@@ -82,7 +82,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     target_p = GetTransformedStaircaseTarget(2, [3,1])
     target_amplitude = quantile(Normal(detection_threshold, sigma), target_p)
     amplitude_history, detection_history, reversion_history, estimated_thresholds, stop_point =
-        TransformedStaircaseSimulation( valid_stims,  pDetected)
+        TransformedStaircaseSimulation( valid_stims,  pDetected, NumPerms=1)
     transformed_staircase_plot = lineplot([1,50], [target_amplitude, target_amplitude], color=(169, 169, 169)
     , ylim = (0, 100), width = 80, height = 20, xlabel="Trial #", ylabel="Stimulus Amplitude (μA)")
     lineplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
@@ -93,9 +93,10 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
     max_reversions = 100
     t_est = zeros(max_reversions, num_perms); fill!(t_est, NaN)
     t_stop = zeros(max_reversions, num_perms); fill!(t_est, NaN)
-    Threads.@threads for mr = 1:max_reversions
+    for mr = 1:max_reversions
         _, _, _, t_est[mr,:], t_stop[mr,:]=
-            TransformedStaircaseSimulation(valid_stims,  pDetected, MaxReversions = mr, NumPerms = num_perms)
+            TransformedStaircaseSimulation(valid_stims,  pDetected, MaxReversions = mr, NumPerms = num_perms,
+            SkipFirstNReversions = 2)
     end
 
     t_mean_staircase = nanmean(t_est, dims = 2)

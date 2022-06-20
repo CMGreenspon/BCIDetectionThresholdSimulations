@@ -4,6 +4,11 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
     InitStepSize::Int = 20, DecreaseStepCoeff::Float64 = 0.75, IncreaseStepCoeff::Float64 = 0.75,
     MinStepSize::Int = 2, MaxStepSize::Int = 20, MaxReversions::Int = 7, SkipFirstNReversions::Int = 0)
 
+    # Error checking
+    if SkipFirstNReversions >= MaxReversions
+        error("SkipFirstNReversions >= MaxReversions")
+    end
+
     # Small computations
     afc_chance = 1/NumAFC
     num_valid_stims = length(ValidStims) 
@@ -33,7 +38,6 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
         else
             StimAmp = InitAmp
         end
-
         
         while t < MaxTrials && !threshold_found
             # Iterate the trial counter
