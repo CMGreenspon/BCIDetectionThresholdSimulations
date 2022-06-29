@@ -16,11 +16,11 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
     min_stim_level = minimum(ValidStims)
 
     # Initialize variables for perms
-    detection_history = zeros(MaxTrials,NumPerms); fill!(detection_history, NaN)
-    amplitude_history = zeros(MaxTrials,NumPerms); fill!(amplitude_history, NaN)
-    reversion_history = zeros(MaxTrials,NumPerms); fill!(reversion_history, NaN)
-    estimated_thresholds = zeros(NumPerms)
-    num_trials = zeros(NumPerms)
+    detection_history = fill(NaN, MaxTrials,NumPerms)
+    amplitude_history = fill(NaN, MaxTrials,NumPerms)
+    reversion_history = fill(NaN, MaxTrials,NumPerms)
+    estimated_thresholds = fill(NaN, NumPerms)
+    num_trials = fill(NaN, NumPerms)
 
     for p = 1:NumPerms
         # Initialize variables for trials
@@ -169,4 +169,36 @@ function PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Int}, Reversi
     end
 
     return EstimatedThreshold
+end
+
+function SortedStaircaseStatistics(ThresholdEstimate::Matrix{Float64}, StaircaseStopPoint::Matrix{Float64},
+     ThresholdGroundTruth::Float64)
+
+    # First vectorize inputs
+    ThresholdEstimate = vec(ThresholdEstimate)
+    StaircaseStopPoint = vec(StaircaseStopPoint)
+    # Then remove NaN values
+    nan_idx = findall(isnan.(ThresholdEstimate) .== 0)
+    ThresholdEstimate = ThresholdEstimate[nan_idx]
+    StaircaseStopPoint = Int.(StaircaseStopPoint[nan_idx])
+
+    # Find the minimum and maximum number of reversion
+    min_repeats = nanminimum(StaircaseStopPoint)
+    max_repeats = nanmaximum(StaircaseStopPoint)
+
+    # Initalize outputs
+    NumRepeats = min_repeats:max_repeats
+    SortedMean = zeros(length(NumRepeats))
+    SortedSTD = zeros(length(NumRepeats))
+    SortedError = zeros(length(NumRepeats))
+
+    # Find all values matching the number of repeats and perform stats on them
+    for (ri, r) in enumerate(NumRepeats)
+        r_idx = findall(StaircaseStopPoint .== r)
+        SortedMean[ri] = mean(ThresholdEstimate[r_idx])
+        SortedSTD[ri] = std(ThresholdEstimate[r_idx])
+        SortedError[ri] = mean(abs.(ThresholdEstimate[r_idx].- ThresholdGroundTruth))
+    end
+
+    return NumRepeats, SortedMean, SortedSTD, SortedError
 end

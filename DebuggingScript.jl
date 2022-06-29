@@ -1,6 +1,6 @@
 # Debugging script
 using DataFrames, UnicodePlots, StatsBase, Distributions, Statistics, LsqFit, Distributed,
-      Base.Threads, Revise, Infiltrator
+      Base.Threads, Revise, Infiltrator, NaNStatistics
 include.(("ConstantSimulations.jl", "StaircaseSimulations.jl"))
 
 ## Helper functions
@@ -29,13 +29,15 @@ lineplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude
 scatterplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
 display(transformed_staircase_plot)
 
-# Evaluate what the staircase would have predicted for different criteria
-max_reversions = 100
-num_perms = 1000
-t_est = zeros(max_reversions, num_perms); fill!(t_est, NaN)
-t_stop = zeros(max_reversions, num_perms); fill!(t_est, NaN)
-for mr = 1:max_reversions
-    _, _, _, t_est[mr,:], t_stop[mr,:]=
-        TransformedStaircaseSimulation(valid_stims,  pDetected, MaxReversions = mr, NumPerms = num_perms,
-        SkipFirstNReversions = 2)
-end
+## Evaluate what the staircase would have predicted for different criteria
+    max_reversions = 100
+    num_perms = 1000
+    t_est = zeros(max_reversions, num_perms); fill!(t_est, NaN)
+    t_stop = zeros(max_reversions, num_perms); fill!(t_stop, NaN)
+    for mr = 3:max_reversions
+        _, _, _, t_est[mr,:], t_stop[mr,:]=
+            TransformedStaircaseSimulation(valid_stims,  pDetected, MaxReversions = mr, NumPerms = num_perms,
+            SkipFirstNReversions = 2)
+    end
+
+    ReversionX, SortedMean, SortedSTD, SortedError = SortedStaircaseStatistics(t_est, t_stop,target_amplitude)

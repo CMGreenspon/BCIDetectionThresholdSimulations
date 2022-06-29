@@ -19,8 +19,8 @@ function ConstantSimulation(Stims::Vector, pDetected::Vector, NumReps::Int; NumP
     pD_Repeated = repeat(pDetected, inner=(1,NumReps))
     
     # Initialize outputs
-    t_est = Vector(undef, NumPerms); fill!(t_est, NaN)
-    pd_all = Matrix(undef, length(Stims),NumPerms); fill!(pd_all, NaN)
+    t_est = fill(NaN, NumPerms)
+    pd_all = fill(NaN, length(Stims), NumPerms)
     
     for p = 1:NumPerms
         # Get the proportion of trials where the draw is below the p(detected) at each intensity
