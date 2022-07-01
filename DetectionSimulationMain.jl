@@ -178,7 +178,7 @@ valid_stims = collect(2:2:100) # These are the amplitudes that can be given
         end
     end
     println("Elapsed time: $(round(time()-t; digits=2))")
-    optim_heatmap = heatmap(t_std_optim, xoffset=widths[1], xfact=getproperty(getproperty(widths,:step), :hi),
+    optim_heatmap = heatmap(t_std_optim, xoffset=widths[1], xfact=step(widths),
      yoffset=num_levels[1], ylabel="#Levels", xlabel="Width")
     display(optim_heatmap)
 

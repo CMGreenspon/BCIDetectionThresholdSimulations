@@ -19,25 +19,28 @@ psychometric_pdf = Normal(detection_threshold, sigma)
 pDetected = cdf(psychometric_pdf, valid_stims)
 
 # Run the simulation and show an example staircase
-target_p = GetTransformedStaircaseTarget(2, [3,1])
-target_amplitude = quantile(Normal(detection_threshold, sigma), target_p)
-amplitude_history, detection_history, reversion_history, estimated_thresholds, stop_point =
-    TransformedStaircaseSimulation( valid_stims,  pDetected, NumPerms=1)
-transformed_staircase_plot = lineplot([1,50], [target_amplitude, target_amplitude], color=(169, 169, 169)
-, ylim = (0, 100), width = 80, height = 20, xlabel="Trial #", ylabel="Stimulus Amplitude (μA)")
-lineplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
-scatterplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
-display(transformed_staircase_plot)
+    target_p = GetTransformedStaircaseTarget(2, [3,1])
+    target_amplitude = quantile(Normal(detection_threshold, sigma), target_p)
+    amplitude_history, detection_history, reversion_history, estimated_thresholds, stop_point =
+        TransformedStaircaseSimulation( valid_stims,  pDetected, NumPerms=1)
+    transformed_staircase_plot = lineplot([1,50], [target_amplitude, target_amplitude], color=(169, 169, 169)
+    , ylim = (0, 100), width = 80, height = 20, xlabel="Trial #", ylabel="Stimulus Amplitude (μA)")
+    #lineplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
+    # scatterplot!(transformed_staircase_plot, 1:size(amplitude_history,1), vec(amplitude_history[:,1]))
+    # display(transformed_staircase_plot)
 
-## Evaluate what the staircase would have predicted for different criteria
-    max_reversions = 100
-    num_perms = 1000
-    t_est = zeros(max_reversions, num_perms); fill!(t_est, NaN)
-    t_stop = zeros(max_reversions, num_perms); fill!(t_stop, NaN)
-    for mr = 3:max_reversions
-        _, _, _, t_est[mr,:], t_stop[mr,:]=
-            TransformedStaircaseSimulation(valid_stims,  pDetected, MaxReversions = mr, NumPerms = num_perms,
-            SkipFirstNReversions = 2)
-    end
+    # Implement GLM fit from staircase
+    # first lets remove all nan-values
+    nan_idx = findall(isnan.(vec(amplitude_history)) .== 0)
+    amp_temp = amplitude_history[nan_idx]
+    dt_temp = Int.(round.(detection_history[nan_idx]))
+    temp_df = DataFrame(amp = amp_temp, dt = dt_temp)
+    #sig_fit = curve_fit(sigmoid, amp_temp, dt_temp, [0.01, detection_threshold])
+    #yp = sigmoid(valid_stims, sig_fit.param)
+    fm = @formula(dt ~ amp)
+    logit = glm(fm, temp_df, Binomial(), LogitLink())
+    yp = predict(logit, DataFrame(amp = valid_stims))
+    temp_plot = lineplot(valid_stims, yp)
+    scatterplot!(temp_plot, amp_temp, dt_temp)
 
-    ReversionX, SortedMean, SortedSTD, SortedError = SortedStaircaseStatistics(t_est, t_stop,target_amplitude)
+    display(temp_plot)
