@@ -1,14 +1,27 @@
-using LsqFit, Distributions
+using LsqFit, Distributions, GLM, DataFrames
+
 function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vector{Float64}; MaxTrials::Int = 1000, 
     NumPerms::Int = 1000, NumAFC::Int = 2, Criterion::Vector{Int} = [3,1], InitAmp::Int = 0,
     InitStepSize::Int = 20, DecreaseStepCoeff::Float64 = 0.75, IncreaseStepCoeff::Float64 = 0.75,
-    MinStepSize::Int = 2, MaxStepSize::Int = 20, MaxReversions::Int = 7, SkipFirstNReversions::Int = 0)
+    MinStepSize::Int = 2, MaxStepSize::Int = 20, MaxReversions::Int = 7, SkipFirstNReversions::Int = 0,
+    UseMLE::Bool = false)
 
     # Error checking
     if SkipFirstNReversions >= MaxReversions
         error("SkipFirstNReversions >= MaxReversions")
     end
 
+    if UseMLE
+        fm = @formula(dt ~ amp)
+        if MaxReversions < 4
+            error("If UsingMLE -> MaxReversions must be equal to or greater than 4")
+        end
+
+        if SkipFirstNReversions > 0
+            println("Warning: SkipFirstNReversions is ignored when UsingMLE is True")
+        end
+    end
+    
     # Small computations
     afc_chance = 1/NumAFC
     num_valid_stims = length(ValidStims) 
@@ -38,7 +51,7 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
         else
             StimAmp = InitAmp
         end
-        
+
         while t < MaxTrials && !threshold_found
             # Iterate the trial counter
             t += 1
@@ -80,10 +93,10 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
             # Ensure StimAmp is in range and is valid (also count as reversion/early stopping criteria)
             if StimAmp > max_stim_level
                 StimAmp = max_stim_level
-                reversion_history[t,p] = true
+                reversion_history[t,p] = new_direction*-1
             elseif StimAmp < min_stim_level
                 StimAmp = min_stim_level
-                reversion_history[t,p] = true
+                reversion_history[t,p] = new_direction*-1
             end
 
             # Update step_size (but only if we've changed stim level at least once)
@@ -106,18 +119,35 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
                 # Update direction
                 current_direction = new_direction
                 # Store reversion index
-                reversion_history[t,p] = true
+                reversion_history[t,p] = new_direction*-1
             end
 
-            if reversion_history[t,p] == true
+            if ~isnan(reversion_history[t,p])
                 num_reversions += 1
             end
 
             # Stopping criteria
             if num_reversions >= MaxReversions
-                rev_idx = findall(isnan.(reversion_history[:,p]) .== 0)[1+SkipFirstNReversions:MaxReversions]
-                rev_amps = amplitude_history[rev_idx,p]
-                estimated_thresholds[p] = mean(rev_amps)
+                if UseMLE
+                    rev_idx = findall(isnan.(reversion_history[:,p]) .== 0)
+                    rev_amps = amplitude_history[rev_idx,p]
+                    rev_dts = Int.(round.(reversion_history[rev_idx,p]))
+                    # Assert that negative reversions = 0
+                    rev_dts[rev_dts .< 0] .= 0
+                    # Perform logistic regression
+                    temp_df = DataFrame(amp = rev_amps, dt = rev_dts) 
+                    try
+                        logit = glm(fm, temp_df, Binomial(), LogitLink())
+                        fit_coeffs = coef(logit)
+                        # Convert and save coeffs
+                        estimated_thresholds[p] = abs(fit_coeffs[1])/fit_coeffs[2]
+                    catch
+                    end
+                else
+                    rev_idx = findall(isnan.(reversion_history[:,p]) .== 0)[1+SkipFirstNReversions:MaxReversions]
+                    rev_amps = amplitude_history[rev_idx,p]
+                    estimated_thresholds[p] = mean(rev_amps)
+                end
                 num_trials[p] = maximum(rev_idx)
                 threshold_found = true # End while loop
             end
@@ -144,8 +174,17 @@ function GetTransformedStaircaseTarget(NumAFC::Int, Criterion::Vector{Int})
     return Target
 end
 
-function PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Int}, ReversionIndices::Matrix{Float64},
-     MaxReversions::Int; SkipFirstNReversions::Int = 0)
+
+"""
+PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Float64}, ReversionIndices::Matrix{Float64};
+    MaxReversions::Int = 7, SkipFirstNReversions::Int = 0, UseMLE::Bool=false)
+
+A function that allows one to determine the estimated threshold by controlling the stop criteria after the fact.
+    This requires that the input staircase has a greater stop criteria than passed to this function, e.g.
+    if the staircase stopped at 5 reversions you cannot post-hoc see what it would have been if it stopped at 7.
+"""
+function PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Float64}, ReversionIndices::Matrix{Float64};
+     MaxReversions::Int = 7, SkipFirstNReversions::Int = 0, UseMLE::Bool=false)
 
     # Error checking
     if SkipFirstNReversions < 0
@@ -157,18 +196,46 @@ function PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Int}, Reversi
     if size(ReversionIndices) != size(TrialAmplitudes)
         error("size(ReversionIndices) != size(TrialAmplitudes)")
     end
+    if UseMLE && MaxReversions < 4
+        error("If UsingMLE -> MaxReversions must be equal to or greater than 4")
+    end
 
     NumPerms = size(TrialAmplitudes,2)
     # Initalize output
-    EstimatedThreshold = zeros(NumPerms)
-    for p = 1:NumPerms
-        # Find the first MaxReversions indices of the ReversionIndices
-        rev_idx = findall(isnan.(ReversionIndices[:,p]) .== 0)[1+SkipFirstNReversions:MaxReversions]
-        rev_amps = TrialAmplitudes[rev_idx,p]
-        EstimatedThreshold[p] = mean(rev_amps)
+    EstimatedThreshold = fill(NaN, NumPerms)
+    if UseMLE
+        EstimatedSigma = zeros(NumPerms)
+        fm = @formula(dt ~ amp)
+        for p = 1:NumPerms
+            # Get the indices at which there was a reversion
+            rev_idx = findall(isnan.(ReversionIndices[:,p]) .== 0)[1:MaxReversions]
+            # Find the amplitudes at each reversion
+            rev_amps = TrialAmplitudes[rev_idx,p]
+            rev_dts = Int.(round.(ReversionIndices[rev_idx,p]))
+            # Assert that negative reversions = 0
+            rev_dts[rev_dts .< 0] .= 0
+            # Perform logistic regression
+            temp_df = DataFrame(amp = rev_amps, dt = rev_dts)
+            try
+                logit = glm(fm, temp_df, Binomial(), LogitLink())
+                fit_coeffs = coef(logit)
+                # Convert and save coeffs
+                EstimatedThreshold[p] = abs(fit_coeffs[1])/fit_coeffs[2]
+                EstimatedSigma[p] = 1.7/fit_coeffs[2]
+            catch
+            end
+        end
+        return EstimatedThreshold, EstimatedSigma
+    else # Default average reversion indices
+        for p = 1:NumPerms
+            # Get the indices at which there was a reversion
+            rev_idx = findall(isnan.(ReversionIndices[:,p]) .== 0)[1+SkipFirstNReversions:MaxReversions]
+            rev_amps = TrialAmplitudes[rev_idx,p] # Find the amplitude at each reversion
+            EstimatedThreshold[p] = mean(rev_amps) # Average the reversion amplitudes
+        end
+        return EstimatedThreshold
     end
 
-    return EstimatedThreshold
 end
 
 function SortedStaircaseStatistics(ThresholdEstimate::Matrix{Float64}, StaircaseStopPoint::Matrix{Float64},
@@ -188,9 +255,9 @@ function SortedStaircaseStatistics(ThresholdEstimate::Matrix{Float64}, Staircase
 
     # Initalize outputs
     NumRepeats = min_repeats:max_repeats
-    SortedMean = zeros(length(NumRepeats))
-    SortedSTD = zeros(length(NumRepeats))
-    SortedError = zeros(length(NumRepeats))
+    SortedMean = fill(NaN, length(NumRepeats))
+    SortedSTD = fill(NaN, length(NumRepeats))
+    SortedError = fill(NaN, length(NumRepeats))
 
     # Find all values matching the number of repeats and perform stats on them
     for (ri, r) in enumerate(NumRepeats)
