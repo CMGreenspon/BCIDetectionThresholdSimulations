@@ -218,7 +218,8 @@ function PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Float64}, Rev
     if UseMLE
         EstimatedSigma = zeros(NumPermutations)
         for p = 1:NumPermutations
-            EstimatedThreshold[p], EstimatedSigma[p] = ThresholdMLE(ReversionIndices[:,p], TrialAmplitudes[:,p])
+            mr_idx = findall(isnan.(reversion_history[:,p]) .== 0)[MaxReversions]
+            EstimatedThreshold[p], EstimatedSigma[p] = ThresholdMLE(ReversionIndices[1:mr_idx,p], TrialAmplitudes[1:mr_idx,p])
         end
         return EstimatedThreshold, EstimatedSigma
     else # Default average reversion indices
