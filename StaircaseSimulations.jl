@@ -1,4 +1,4 @@
-using LsqFit, Distributions, GLM, DataFrames
+using LsqFit, GLM, DataFrames
 
 """
 TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vector{Float64}; MaxTrials::Int = 1000, 
@@ -13,11 +13,21 @@ A function that simulates runs of a transformed staircase. Several parameters ma
 
 returns amplitude_history, detection_history, reversion_history, estimated_thresholds, num_trials
 """
-function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vector{Float64}; MaxTrials::Int = 1000, 
-    NumPermutations::Int = 1000, NumAFC::Int = 2, Criterion::Vector{Int} = [3,1], InitAmp::Int = 0,
-    InitStepSize::Int = 20, DecreaseStepCoeff::Float64 = 0.75, IncreaseStepCoeff::Float64 = 0.75,
-    MinStepSize::Int = 2, MaxStepSize::Int = 20, MaxReversions::Int = 7, SkipFirstNReversions::Int = 0,
-    UseMLE::Bool = false)
+function TransformedStaircaseSimulation(ValidStims::Vector{Int},
+                                        pDetected::Vector{Float64};
+                                        MaxTrials::Int = 1000,
+                                        NumPermutations::Int = 1000,
+                                        NumAFC::Int = 2,
+                                        Criterion::Vector{Int} = [3,1],
+                                        InitAmp::Int = 0,
+                                        InitStepSize::Int = 20,
+                                        DecreaseStepCoeff::Float64 = 0.75,
+                                        IncreaseStepCoeff::Float64 = 0.75,
+                                        MinStepSize::Int = 2,
+                                        MaxStepSize::Int = 20,
+                                        MaxReversions::Int = 7,
+                                        SkipFirstNReversions::Int = 0,
+                                        UseMLE::Bool = false)
 
     # Error checking
     if SkipFirstNReversions >= MaxReversions
@@ -37,7 +47,6 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
     
     # Small computations
     afc_chance = 1/NumAFC
-    num_valid_stims = length(ValidStims) 
     max_stim_level = maximum(ValidStims)
     min_stim_level = minimum(ValidStims)
 
@@ -60,7 +69,7 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
         num_reversions = 0
 
         if InitAmp == 0 # Choose a random stim
-            StimAmp = ValidStims[rand(1:num_valid_stims)]
+            StimAmp = rand(ValidStims,1)[1]
         else
             StimAmp = InitAmp
         end
@@ -91,14 +100,14 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vec
             if consecutive_answers[1] >= Criterion[1]
                 # Criterion in a row correct means decrease amplitude
                 new_direction = -1
-                StimAmp = StimAmp - step_size
+                StimAmp -= step_size
                 consecutive_answers = [0,0]
                 criterion_reached = true
 
             elseif consecutive_answers[2] >= Criterion[2]
                 # Criterion in a row incorrect means increase amplitude
                 new_direction = 1
-                StimAmp = StimAmp + step_size
+                StimAmp += step_size
                 consecutive_answers = [0,0]
                 criterion_reached = true
             end
@@ -181,6 +190,180 @@ function GetTransformedStaircaseTarget(NumAFC::Int, Criterion::Vector{Int})
         Target = Criterion[1]/sum(Criterion)
     end
     
+    return Target
+end
+
+"""
+PESTStaircaseSimulation - Runs a staircase using PEST update rules to find the amplitude at which a target performance level is acheived
+"""
+function PESTStaircaseSimulation(ValidStims::Vector{Int},
+                                 pDetected::Vector{Float64};
+                                 MaxTrials::Int = 1000,
+                                 NumPermutations::Int = 1000,
+                                 NumAFC::Int = 2,
+                                 TargetPerformance::Float64 = 0.75,
+                                 WaldFactor::Int = 1,
+                                 WaldTrials::Int = 4,
+                                 InitAmp::Int = 0,
+                                 InitStepSize::Int = 20,
+                                 MinStepSize::Int = 2,
+                                 MaxStepSize::Int = 20,
+                                 MaxReversions::Int = 7,
+                                 UseMLE::Bool = false)
+
+    if UseMLE
+        fm = @formula(dt ~ amp)
+        if MaxReversions < 4
+            error("If UsingMLE -> MaxReversions must be equal to or greater than 4")
+        end
+    end
+
+    # Small computations
+    afc_chance = 1/NumAFC
+    max_stim_level = maximum(ValidStims)
+    min_stim_level = minimum(ValidStims)
+
+    # Initialize variables for each permutation
+    detection_history = fill(NaN, MaxTrials, NumPermutations)
+    amplitude_history = fill(NaN, MaxTrials, NumPermutations)
+    reversion_history = fill(NaN, MaxTrials, NumPermutations)
+    estimated_thresholds = fill(NaN, NumPermutations)
+    num_trials = fill(NaN, NumPermutations)
+
+    for p = 1:NumPermutations
+        # Initialize variables for trials
+        step_size = InitStepSize
+        current_direction = 0
+        new_direction = 0
+        threshold_found = false
+        num_reversions = 0
+        last_step_was_double = false
+        sequential_dir_count = 0
+        temp_detection_tracker = Int[]
+        t = 0 # Trial index
+
+        if InitAmp == 0 # Choose a random stim
+            StimAmp = rand(ValidStims,1)[1]
+        else
+            StimAmp = InitAmp
+        end
+
+        # Actual trial logic
+        while t <= MaxTrials && !threshold_found
+            # Iterate the trial counter
+            t += 1
+            stim_idx = findall(ValidStims .== StimAmp)
+            if length(stim_idx) == 0 # If invalid stim then find nearest valid
+                (_, stim_idx) = findmin(abs.(ValidStims .- StimAmp))
+                StimAmp = ValidStims[stim_idx[1]]
+            end
+            amplitude_history[t,p] = StimAmp
+            pd_at_stim = pDetected[stim_idx[1]] # Will error if the StimAmp is not a member of ValidStims
+            
+            # Deterimine if the 'correct' interval was selected. Equal to p(detected) + 1/NumAFC
+            if rand() < pd_at_stim || (num_afc > 1 && rand() < afc_chance)
+                detection_history[t,p] = 1
+                push!(temp_detection_tracker, 1)
+            else
+                detection_history[t,p] = 0
+                push!(temp_detection_tracker, 0)
+            end
+
+            # Evaluate Wald-adjusted likelihood, udate stim if criteria is met, reset detection tracker
+            if length(temp_detection_tracker) >= WaldTrials
+                observed_detections = sum(temp_detection_tracker)
+                expected_detections = length(temp_detection_tracker) * TargetPerformance
+                wald_bounds = (expected_detections + WaldFactor, expected_detections - WaldFactor)
+                if observed_detections > wald_bounds[1] # If more than expected then decrease amp
+                    new_direction = -1
+                    StimAmp -= step_size
+                    reversion_history[t,p] = new_direction*-1
+                    temp_detection_tracker = Int[]
+                elseif observed_detections < wald_bounds[2]# If less than expected then increase amp
+                    new_direction = 1
+                    StimAmp += step_size
+                    reversion_history[t,p] = new_direction*-1
+                    temp_detection_tracker = Int[]
+                end
+            end
+
+            # Ensure StimAmp is in range and is valid (also count as reversion/early stopping criteria)
+            if StimAmp > max_stim_level
+                StimAmp = max_stim_level
+                reversion_history[t,p] = new_direction*-1
+            elseif StimAmp < min_stim_level
+                StimAmp = min_stim_level
+                reversion_history[t,p] = new_direction*-1
+            end
+
+            if ~isnan(reversion_history[t,p]) # Update reversion counter
+                num_reversions += 1
+            end
+
+            # Determine new update rule - PEST Rules
+            if length(temp_detection_tracker) == 0
+                if new_direction != current_direction
+                    current_direction = new_direction
+                    sequential_dir_count = 0
+                else
+                    sequential_dir_count += 1
+                end
+                
+                # Determine step size
+                if sequential_dir_count == 0
+                    step_size = step_size / 2 # Half step size on direction change
+                    last_step_was_double = false
+                elseif sequential_dir_count == 1
+                    last_step_was_double = false
+                elseif sequential_dir_count == 2 && last_step_was_double
+                    step_size = step_size * 2; # Only double if the last reversion was from a double
+                    last_step_was_double = true
+                elseif sequential_dir_count == 2 && ~last_step_was_double
+                    last_step_was_double = false
+                elseif sequential_dir_count > 2
+                    step_size = step_size * 2 # Double away
+                    last_step_was_double = true
+                end
+        
+                # Ensure step size is in range
+                if step_size < MinStepSize
+                    step_size = MinStepSize
+                elseif step_size > MaxStepSize
+                    step_size = MaxStepSize
+                end
+            end
+
+            # Stopping criteria
+            if num_reversions >= MaxReversions || t == MaxTrials
+                if UseMLE # Use Maximum Likelihood Estimation
+                    estimated_thresholds[p], _ = ThresholdMLE(reversion_history[:,p], amplitude_history[:,p])
+                else # Take the final stimulus amplitude
+                    estimated_thresholds[p] = StimAmp
+                end
+                num_trials[p] = t # Keep track of the trial number we stopped at  
+                threshold_found = true # End while loop
+            end
+        end
+    end
+
+    return amplitude_history, detection_history, reversion_history, estimated_thresholds, num_trials
+end
+
+"""
+GetPESTStaircaseTarget(NumAFC::Int, Criterion::Vector{Int}) - UNFINISHED
+
+returns Target
+"""
+function GetPESTStaircaseTarget(PsychometricCurve::UnivariateDistribution, TargetPerformance::Float64, NumAFC::Int)
+    Target = Float64[]
+    if NumAFC > 1 # Adjust target for NumAFC
+        chance = 1/NumAFC
+        adj_target = (TargetPerformance - chance) / (1-chance)
+        Target = quantile(PsychometricCurve, adj_target)
+    else
+        Target = quantile(PsychometricCurve, TargetPerformance)
+    end
+
     return Target
 end
 
