@@ -1,5 +1,8 @@
-## Import and setup
-    using LsqFit, Distributions, GLM, DataFrames, UnicodePlots, StatsBase, NaNStatistics, Base.Threads
+## Import 
+    using LsqFit, Distributions, GLM, DataFrames, UnicodePlots, StatsBase, NaNStatistics, Base.Threads, DataFrames
+    include.(("ConstantSimulations.jl", "StaircaseSimulations.jl"))
+
+## Setup
     jnd2sigma(j::Real) = (1 /quantile(Normal(), 0.75)) * j # Convert JND to σ
     sigma2k(sigma::Real) = 1.7 / sigma; # Convert σ to k
     sigmoid(x::Vector, coeffs::Vector) = 1 ./ (1 .+ exp.(-coeffs[1].*(x.-coeffs[2])))
@@ -12,107 +15,91 @@
 
     psychometric_pdf = Normal(detection_threshold, sigma)
     pDetected = cdf(psychometric_pdf, valid_stims)
-    lineplot(valid_stims, pDetected)
+    l  = lineplot(valid_stims, pDetected);
+    lineplot!(l, [detection_threshold, detection_threshold, 0], [0, .5, .5])
+   
 
+## Quest testing
+max_trials = 100;
+NumAFC = 2;
+afc_chance = 1 / NumAFC;
+TrackingDF = DataFrame([Int8[], Int8[]], ["StimAmp", "Detected"])
+chance_sigmoid(x::Vector, coeffs::Vector) = (1 ./ (1 .+ exp.(-coeffs[1].*(x.-coeffs[2])))) .* coeffs[3] .+ coeffs[3]
+chance_linear(x::Vector, coeffs::Vector) = (coeffs[1] .* (x .+ coeffs[2])) .+ coeffs[3]
+# StimAmp = detection_threshold
+StimAmp = rand(valid_stims,1)[1];
+StepSize = 10;
+t = 1;
+while t < max_trials + 1
+    stim_idx = findall(valid_stims .== StimAmp)
+    pd_at_stim = pDetected[stim_idx[1]]
+    # Determine if detected
+    if rand() < pd_at_stim || (NumAFC > 1 && rand() < afc_chance)
+        # Deterimine if the 'correct' interval was selected. Equal to p(detected) + 1/NumAFC
+        DTLogit = 1
+    else
+        DTLogit =  0
+    end
+    push!(TrackingDF, [convert(Int8, StimAmp), convert(Int8, DTLogit)])
 
-##
-    include("StaircaseSimulations.jl")
-## PEST Testing
-    num_afc = 2; afc_chance = 1/num_afc
-    StimAmp = rand(valid_stims,1)[1] # Random starting amplitude
-    max_trials = 100
-    step_size = 10
-    target_performance = .75
-    wald_value = 1
-    min_trials = 4
-    MinStepSize = 2
-    MaxStepSize = 20
-    max_stim_level = maximum(valid_stims)
-    min_stim_level = minimum(valid_stims)
-
-    # PEST Rules
-    current_dir = -1
-    new_dir = -1
-    last_rev_was_double = false
-    last_step_was_double = false
-    sequential_dir_count = 0
-    temp_detection_tracker = Int[]
-
-    amplitude_history = fill(NaN, max_trials)
-    for t = 1:max_trials
-        stim_idx = findall(ValidStims .== StimAmp)
-        if length(stim_idx) == 0 # If invalid stim then find nearest valid
-            (_, stim_idx) = findmin(abs.(ValidStims .- StimAmp))
-            StimAmp = ValidStims[stim_idx[1]]
-        end
-        amplitude_history[t] = StimAmp
-        pd_at_stim = pDetected[stim_idx[1]] # Will error if the StimAmp is not a member of ValidStims
-        
-        # Determine if detected
-        if rand() < pd_at_stim || (num_afc > 1 && rand() < afc_chance)
-            # Deterimine if the 'correct' interval was selected. Equal to p(detected) + 1/NumAFC
-            push!(temp_detection_tracker, 1)
+    # Update rule depends on number of trials
+    if sum(TrackingDF.Detected .== 1) < 3 || sum(TrackingDF.Detected .== 0) < 3
+        if DTLogit == 1
+            StimAmp -= StepSize
         else
-            push!(temp_detection_tracker, 0)
+            StimAmp += StepSize
         end
 
-        # Evaluate Wald-adjusted likelihood, udate stim if criteria is met, reset detection tracker
-        if length(temp_detection_tracker) >= min_trials
-            observed_detections = sum(temp_detection_tracker)
-            expected_detections = length(temp_detection_tracker) * target_performance
-            wald_bounds = (expected_detections + wald_value, expected_detections - wald_value)
-            if observed_detections > wald_bounds[1] # If more than expected then decrease amp
-                new_dir = -1
-                StimAmp -= step_size
-                temp_detection_tracker = Int[]
-            elseif observed_detections < wald_bounds[2]# If less than expected then increase amp
-                new_dir = 1
-                StimAmp += step_size
-                temp_detection_tracker = Int[]
-            end
-        end
+    else # Fit a logistic function and use estimated point as next trial
 
-        # Ensure StimAmp is in range and is valid (also count as reversion/early stopping criteria)
-        if StimAmp > max_stim_level
-            StimAmp = max_stim_level
-            # reversion_history[t,p] = new_direction*-1
-        elseif StimAmp < min_stim_level
-            StimAmp = min_stim_level
-            # reversion_history[t,p] = new_direction*-1
-        end
+        # sig_fit = curve_fit(chance_sigmoid, TrackingDF.StimAmp, TrackingDF.Detected,
+        #  [0.1, mean(TrackingDF.StimAmp), afc_chance], lower = [0, 0, afc_chance], upper = [1, 100, afc_chance])
+        # StimAmp = sig_fit.param[2] + randn() * exp(sig_fit.param[1]) * 2
 
-        # Determine new update rule - PEST Rules
-        if length(temp_detection_tracker) == 0
-            if new_dir != current_dir
-                current_dir = new_dir
-                sequential_dir_count = 0
-            else
-                sequential_dir_count += 1
-            end
-            
-            # Determine step size
-            if sequential_dir_count == 0
-                step_size = step_size / 2 # Half step size on direction change
-                last_step_was_double = false
-            elseif sequential_dir_count == 1
-                last_step_was_double = false
-            elseif sequential_dir_count == 2 && last_step_was_double
-                step_size = step_size * 2; # Only double if the last reversion was from a double
-                last_step_was_double = true
-            elseif sequential_dir_count == 2 && ~last_step_was_double
-                last_step_was_double = false
-            elseif sequential_dir_count > 2
-                step_size = step_size * 2 # Double away
-                last_step_was_double = true
-            end
-    
-            # Ensure step size is in range
-            if step_size < MinStepSize
-                step_size = MinStepSize
-            elseif step_size > MaxStepSize
-                step_size = MaxStepSize
-            end
-        end
+        # logit = glm(fm1, TrackingDF, Binomial(), LogitLink())
+        # StimAmp = ((0.75 - coef(logit)[1]) / coef(logit)[2]) + randn() * coef(logit)[1] / 10
+        
+        lin_fit = curve_fit(chance_linear, log.(TrackingDF.StimAmp), TrackingDF.Detected,
+         [0.1, mean(log.(TrackingDF.StimAmp)), afc_chance], lower = [0, -100, afc_chance], upper = [1, 100, afc_chance])
+        
     end
 
-    
+    StimAmp = round(StimAmp / 2) * 2
+    if StimAmp < valid_stims[1]
+        StimAmp = valid_stims[1]
+    elseif StimAmp > valid_stims[end]
+        StimAmp = valid_stims[end]
+    end
+    t += 1
+end
+
+lineplot(range(1,max_trials), TrackingDF.StimAmp, ylim=(0,100))
+logit = glm(fm1, TrackingDF, Binomial(), LogitLink())
+println("Predicted Threshold = $((0.775 - coef(logit)[1]) / coef(logit)[2])")
+##
+sig_fit = curve_fit(chance_sigmoid, TrackingDF.StimAmp, TrackingDF.Detected,
+         [0.1, mean(TrackingDF.StimAmp), afc_chance], lower = [0, 0, afc_chance], upper = [5, 100, afc_chance])
+println("Predicted Threshold = $(sig_fit.param[2])")
+fm1 = @formula(Detected ~ StimAmp)
+logit1 = glm(fm1, TrackingDF, Binomial(), ProbitLink())
+
+
+## Bayesian testing
+# Generate N trials and work get detections for each trial
+afc_chance = 0.5
+num_trials = Int(1e6);
+StimIdx = rand(1:length(valid_stims), num_trials);
+StimAmps = valid_stims[StimIdx];
+Detections = (rand(num_trials) .< pDetected[StimIdx]) .| (rand(num_trials) .< afc_chance);
+
+# USA = sort(unique(StimAmps))
+# pbin = [mean(Detections[StimAmps .>= x]) for x in USA]
+temp_df = DataFrame(StimAmp = StimAmps, Detections = Detections)
+fm = @formula(Detections ~ StimAmp)
+logit = glm(fm, temp_df, Binomial(), LogitLink())
+## Testing logit predict
+l = lineplot(valid_stims, convert.(Float64, predict(logit1, DataFrame(StimAmp = valid_stims))), height = 30, width = 80);
+lineplot!(l, [detection_threshold, detection_threshold, 0], [0, .75, .75]);
+lineplot!(l, [detection_threshold, detection_threshold, 0], [0, .5, .5]);
+lineplot!(l, [37, 37, 0], [0, .5, .5])
+

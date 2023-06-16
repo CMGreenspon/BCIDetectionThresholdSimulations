@@ -35,11 +35,9 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},
     end
 
     if UseMLE
-        fm = @formula(dt ~ amp)
         if MaxReversions < 4
             error("If UsingMLE -> MaxReversions must be equal to or greater than 4")
         end
-
         if SkipFirstNReversions > 0
             println("Warning: SkipFirstNReversions is ignored when UsingMLE is True")
         end
@@ -100,48 +98,55 @@ function TransformedStaircaseSimulation(ValidStims::Vector{Int},
             if consecutive_answers[1] >= Criterion[1]
                 # Criterion in a row correct means decrease amplitude
                 new_direction = -1
-                StimAmp -= step_size
-                consecutive_answers = [0,0]
                 criterion_reached = true
 
             elseif consecutive_answers[2] >= Criterion[2]
                 # Criterion in a row incorrect means increase amplitude
                 new_direction = 1
-                StimAmp += step_size
-                consecutive_answers = [0,0]
                 criterion_reached = true
             end
 
-            # Ensure StimAmp is in range and is valid (also count as reversion/early stopping criteria)
-            if StimAmp > max_stim_level
-                StimAmp = max_stim_level
-                reversion_history[t,p] = new_direction*-1
-            elseif StimAmp < min_stim_level
-                StimAmp = min_stim_level
-                reversion_history[t,p] = new_direction*-1
-            end
-
             # Update step_size (but only if we've changed stim level at least once)
-            if criterion_reached && (new_direction != current_direction)
-                if new_direction == 1
-                    step_size = step_size * IncreaseStepCoeff
-                elseif new_direction == -1
-                    step_size = step_size * DecreaseStepCoeff
-                end
-                
-                # Ensure step size is not out of bounds
-                if step_size < MinStepSize
-                    step_size = MinStepSize
-                elseif step_size > MaxStepSize
-                    step_size = MaxStepSize
+            if criterion_reached
+                if current_direction != 0 && new_direction != current_direction
+                    # Adjust the step size
+                    if new_direction == 1
+                        step_size = step_size * IncreaseStepCoeff
+                    elseif new_direction == -1
+                        step_size = step_size * DecreaseStepCoeff
+                    end
+                    
+                    # Ensure step size is not out of bounds
+                    if step_size < MinStepSize
+                        step_size = MinStepSize
+                    elseif step_size > MaxStepSize
+                        step_size = MaxStepSize
+                    end
+
+                    # Store reversion index
+                    reversion_history[t,p] = new_direction*-1
                 end
 
-                # Reset boolean
+                # Apply the step
+                if new_direction == 1
+                    StimAmp += step_size
+                elseif new_direction == -1
+                    StimAmp -= step_size
+                end
+
+                # Ensure StimAmp is in range and is valid (also count as reversion/early stopping criteria)
+                if StimAmp > max_stim_level
+                    StimAmp = max_stim_level
+                    reversion_history[t,p] = new_direction*-1
+                elseif StimAmp < min_stim_level
+                    StimAmp = min_stim_level
+                    reversion_history[t,p] = new_direction*-1
+                end
+
+                # Reset criterion & update direction
                 criterion_reached = false
-                # Update direction
+                consecutive_answers = [0,0]
                 current_direction = new_direction
-                # Store reversion index
-                reversion_history[t,p] = new_direction*-1
             end
 
             if ~isnan(reversion_history[t,p]) # Update reversion counter
