@@ -6,8 +6,12 @@ NumPermutations::Int = 1000, NumAFC::Int = 2)
 Takes the stimulus levels, the corresponding probability of detection for each stimulus, and the number of 
 trials/repeats and simulates the method of constant stimulation to resolve the detection threshold.
 """
-function ConstantSimulation(Stims::Vector, pDetected::Vector, NumReps::Int; NumPermutations::Int = 1000, NumAFC::Int = 2,
-     BoundSig::Bool = true)
+function ConstantSimulation(Stims::Vector,
+                            pDetected::Vector,
+                            NumReps::Int;
+                            NumPermutations::Int = 1000,
+                            NumAFC::Int = 2,
+                            BoundSig::Bool = true)
     if NumAFC < 1
         error("NumAFC < 1")
     elseif NumAFC == 1

@@ -168,7 +168,7 @@ parfor i = 1:max_repeats
     end
 end
 
-if stim_draw > noise_draws(t) || (num_afc > 1 && rand(1) < chance)
+% if stim_draw > noise_draws(t) || (num_afc > 1 && rand(1) < chance)
 
 %% 1b Signal detection theory and alternate forced choice implementation
 d_prime = -3.5:.01:3.5;
@@ -795,7 +795,7 @@ xlim([0 100])
 
 % Coarse detection
 coarse_valid_stims = 10:10:90; % Get p(detection) for each stim value
-coarse_repeats = 2;
+coarse_repeats = 5;
 ground_truth = getpdetect(coarse_valid_stims, threshold, sigma);
 stim_idx = repmat([1:length(coarse_valid_stims)], [1,2]);
 stim_idx = stim_idx(randperm(length(stim_idx)));

@@ -1,4 +1,4 @@
-using LsqFit, GLM, DataFrames
+using LsqFit, GLM, DataFrames, Optim
 
 """
 TransformedStaircaseSimulation(ValidStims::Vector{Int},  pDetected::Vector{Float64}; MaxTrials::Int = 1000, 
@@ -217,7 +217,6 @@ function PESTStaircaseSimulation(ValidStims::Vector{Int},
                                  UseMLE::Bool = false)
 
     if UseMLE
-        fm = @formula(dt ~ amp)
         if MaxReversions < 4
             error("If UsingMLE -> MaxReversions must be equal to or greater than 4")
         end
@@ -363,8 +362,8 @@ function GetPESTStaircaseTarget(PsychometricCurve::UnivariateDistribution, Targe
     Target = Float64[]
     if NumAFC > 1 # Adjust target for NumAFC
         chance = 1/NumAFC
-        adj_target = (TargetPerformance - chance) / (1-chance)
-        Target = quantile(PsychometricCurve, adj_target)
+        adjusted_target = (TargetPerformance - chance) / (1-chance)
+        Target = quantile(PsychometricCurve, adjusted_target)
     else
         Target = quantile(PsychometricCurve, TargetPerformance)
     end
@@ -381,7 +380,7 @@ A function that allows one to determine the estimated threshold by controlling t
     This requires that the input staircase has a greater stop criteria than passed to this function, e.g.
     if the staircase stopped at 5 reversions you cannot post-hoc see what it would have been if it stopped at 7.
 
-    returns EstimatedThreshold
+returns EstimatedThreshold
 """
 function PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Float64}, ReversionIndices::Matrix{Float64};
      MaxReversions::Int = 7, SkipFirstNReversions::Int = 0, UseMLE::Bool=false)
@@ -422,9 +421,16 @@ function PosthocEstimateStaircaseThreshold(TrialAmplitudes::Matrix{Float64}, Rev
 
 end
 
-function SortedStaircaseStatistics(ThresholdEstimate::Matrix{Float64}, StaircaseStopPoint::Matrix{Float64},
+"""
+SortedStaircaseStatistics(ThresholdEstimate::Matrix{Float64}, StaircaseStopPoint::Matrix{Float64},
      ThresholdGroundTruth::Float64)
+Post-hoc sorting of stairsase estimates based on number of trails. Takes the predicted threshold, the trial
+    number the prediction was made at, and the true threshold.
 
+returns NumRepeats (x), SortedMean, SortedSTD, SortedError
+"""
+function SortedStaircaseStatistics(ThresholdEstimate::Matrix{Float64}, StaircaseStopPoint::Matrix{Float64},
+     ThresholdGroundTruth::Float64) 
     # First vectorize inputs
     ThresholdEstimate = vec(ThresholdEstimate)
     StaircaseStopPoint = vec(StaircaseStopPoint)
@@ -463,7 +469,7 @@ Subfunction for running MLE on reversion values from staircase. Will get ~NaN va
     values of those indices. Will treat ReversionIndices == 1 as detected class and 
     ReversionIndices < 0 as non-detected class. Any values besides 1 and -1 may produce errors.
 
-    returns estimated_threshold, estimated_sigma
+returns estimated_threshold, estimated_sigma
 """
 function ThresholdMLE(ReversionIndices::Vector{Float64}, AmplitudeHistory::Vector{Float64})
     estimated_threshold = Float64[]
@@ -488,4 +494,102 @@ function ThresholdMLE(ReversionIndices::Vector{Float64}, AmplitudeHistory::Vecto
     end
 
     return estimated_threshold, estimated_sigma
+end
+
+
+function QUESTStaircase(ValidStims::Vector{Int},
+                        pDetected::Vector{Float64};
+                        MaxTrials::Int = 1000,
+                        NumPermutations::Int = 1000,
+                        NumAFC::Int = 2,
+                        InitAmp::Int = 0,
+                        StepSize::Int = 10,
+                        NoiseFactor::Number = 10,
+                        UpperBounds::Vector{Float64} = [1.0, 100],
+                        LowerBounds::Vector{Float64} = [0.0, -100],
+                        InitialGuess::Vector{Float64} = [0.1, 0.0])
+    
+    # Small computations
+    afc_chance = 1/NumAFC
+    max_stim_level = maximum(ValidStims)
+    min_stim_level = minimum(ValidStims)
+
+    # Initialize variables for each permutation
+    detection_history = fill(false, MaxTrials, NumPermutations)
+    amplitude_history = fill(0, MaxTrials, NumPermutations)
+    estimated_threshold = fill(NaN, MaxTrials, NumPermutations)
+
+    for p = 1:NumPermutations
+        # Initialize variables for trials
+        t = 0
+        if InitAmp == 0 # Choose a random stim
+            StimAmp = rand(ValidStims,1)[1]
+        else
+            StimAmp = InitAmp
+        end
+        PermGuess = InitialGuess
+
+        # Begin the staircase
+        while t < MaxTrials
+            # Iterate the trial counter
+            t += 1
+            amplitude_history[t, p] = StimAmp
+            stim_idx = findall(valid_stims .== StimAmp)
+            pd_at_stim = pDetected[stim_idx[1]]
+            # Determine if detected
+            if rand() < pd_at_stim || (NumAFC > 1 && rand() < afc_chance)
+                # Deterimine if the 'correct' interval was selected. Equal to p(detected) + 1/NumAFC
+                detection_history[t,p] = true
+            end
+
+            # Update rule depends on number of trials
+            if sum(detection_history[1:t, p] .== 1) < 3 || sum(detection_history[1:t, p] .== 0) < 3
+                if detection_history[t,p] == 1
+                    StimAmp -= StepSize
+                else
+                    StimAmp += StepSize
+                end
+    
+            else # Fit a logistic function and use estimated point as next trial
+                r = optimize(x -> ChanceMaximumLikelihood(amplitude_history[1:t, p],
+                        detection_history[1:t, p], afc_chance, x),
+                        LowerBounds, UpperBounds, PermGuess)
+                PermGuess = r.minimizer
+                estimated_threshold[t,p] = abs(r.minimizer[2]) / r.minimizer[1]
+                StimAmp = estimated_threshold[t,p] + (r.minimizer[1] * randn() * NoiseFactor)
+            end
+            
+            # Validate StimAmp
+            StimAmp = round(StimAmp / 2) * 2
+            if StimAmp < min_stim_level
+                StimAmp = min_stim_level
+            elseif StimAmp > max_stim_level
+                StimAmp = max_stim_level
+            end
+        end
+    end
+
+    return detection_history, amplitude_history, estimated_threshold
+end
+
+"""
+ChanceMaximumLikelihood(X::Vector{Int}, Y::Vector{Bool}, Chance::Float64, Coeffs::Vector{Float64})
+
+Custom loss function for logistic regression. Scales probabilities by chance to prevent over-fitting
+    to false alarms. Returns the inverted likelihood (loss) such that minimization optimizers can be used.
+
+returns loss
+"""
+function ChanceMaximumLikelihood(X::Vector{Int64},
+                                 Y::Union{BitVector, Vector{Bool}},
+                                 Chance::Float64,
+                                 Coeffs::Vector{Float64})
+    log_odds_projected = X .* Coeffs[1] .+ Coeffs[2] # Project in form y = mx + c
+    # Convert to probability while adjusting for chance
+    probabilities = (exp.(log_odds_projected) ./ (1 .+ exp.(log_odds_projected))) .* Chance .+ Chance
+    # Compute likelihoods
+    likelihood_detected = [log(x) for (x, y) in zip(probabilities, Y) if y];
+    likelihood_not_detected = [log(1 - x) for (x, y) in zip(probabilities, Y) if !y];
+    total_likelihood = sum(likelihood_detected) + sum(likelihood_not_detected)
+    return total_likelihood * -1
 end
