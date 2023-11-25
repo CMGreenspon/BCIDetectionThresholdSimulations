@@ -504,7 +504,8 @@ function QUESTStaircase(ValidStims::Vector{Int},
                         NumAFC::Int = 2,
                         InitAmp::Int = 0,
                         StepSize::Int = 10,
-                        NoiseFactor::Number = 10,
+                        StimNoise::Symbol = :none,
+                        NoiseFactor::{Number} = 20,
                         UpperBounds::Vector{Float64} = [1.0, 100],
                         LowerBounds::Vector{Float64} = [0.0, -100],
                         InitialGuess::Vector{Float64} = [0.1, 0.0])
@@ -556,7 +557,12 @@ function QUESTStaircase(ValidStims::Vector{Int},
                         LowerBounds, UpperBounds, PermGuess)
                 PermGuess = r.minimizer
                 estimated_threshold[t,p] = abs(r.minimizer[2]) / r.minimizer[1]
-                StimAmp = estimated_threshold[t,p] + (r.minimizer[1] * randn() * NoiseFactor)
+                if :StimNoise == :none # Just use intercept as the next amplitude
+                    StimAmp = estimated_threshold[t,p]
+                elseif :StimNoise == :logistic # Add noise corresponding to scale term of logistic fit
+                    StimAmp = estimated_threshold[t,p] + (r.minimizer[1] * randn() * NoiseFactor)
+                elseif :StimNoise == :lsq # Use discretized least-squares regression to estimate a slope
+                end
             end
             
             # Validate StimAmp
@@ -588,8 +594,8 @@ function ChanceMaximumLikelihood(X::Vector{Int64},
     # Convert to probability while adjusting for chance
     probabilities = (exp.(log_odds_projected) ./ (1 .+ exp.(log_odds_projected))) .* Chance .+ Chance
     # Compute likelihoods
-    likelihood_detected = [log(x) for (x, y) in zip(probabilities, Y) if y];
-    likelihood_not_detected = [log(1 - x) for (x, y) in zip(probabilities, Y) if !y];
+    likelihood_detected = [log(x) for (x, y) in zip(probabilities, Y) if y]
+    likelihood_not_detected = [log(1 - x) for (x, y) in zip(probabilities, Y) if !y]
     total_likelihood = sum(likelihood_detected) + sum(likelihood_not_detected)
     return total_likelihood * -1
 end
